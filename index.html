@@ -85,340 +85,368 @@
     }
   </style>
   
+  <!-- ArcGIS JavaScript API -->
   <link rel="stylesheet" href="https://js.arcgis.com/4.27/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.27/"></script>
   
   <!-- Firebase App (the core Firebase SDK) -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
   <!-- Firebase Database -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
   
   <script>
-    // Firebase configuration with your actual Firebase details
-    const firebaseConfig = {
-      apiKey: "AIzaSyD6X19rtnpFKKElYRmY8dO_ZmWnXfhXyM0",
-      authDomain: "radd-86f5f.firebaseapp.com",
-      databaseURL: "https://radd-86f5f-default-rtdb.firebaseio.com",
-      projectId: "radd-86f5f",
-      storageBucket: "radd-86f5f.firebasestorage.app",
-      messagingSenderId: "958503415106",
-      appId: "1:958503415106:web:e169eceec47aaf7187ecdb",
-      measurementId: "G-NRJ2NL8G68"
-    };
-    
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
-    const pinsRef = database.ref('pins');
-    
-    require([
-      "esri/Map",
-      "esri/views/MapView",
-      "esri/Graphic",
-      "esri/layers/GraphicsLayer",
-      "esri/widgets/Locate",
-      "esri/widgets/Search",
-      "esri/widgets/BasemapToggle"
-    ], function(Map, MapView, Graphic, GraphicsLayer, Locate, Search, BasemapToggle) {
+    // Wait for the document to load
+    document.addEventListener("DOMContentLoaded", function() {
+      // Firebase configuration with your actual Firebase details
+      const firebaseConfig = {
+        apiKey: "AIzaSyD6X19rtnpFKKElYRmY8dO_ZmWnXfhXyM0",
+        authDomain: "radd-86f5f.firebaseapp.com",
+        databaseURL: "https://radd-86f5f-default-rtdb.firebaseio.com",
+        projectId: "radd-86f5f",
+        storageBucket: "radd-86f5f.firebasestorage.app",
+        messagingSenderId: "958503415106",
+        appId: "1:958503415106:web:e169eceec47aaf7187ecdb",
+        measurementId: "G-NRJ2NL8G68"
+      };
       
-      // Create a new graphics layer to hold pins
-      const graphicsLayer = new GraphicsLayer();
+      // Initialize Firebase
+      try {
+        firebase.initializeApp(firebaseConfig);
+        console.log("Firebase initialized successfully");
+      } catch (error) {
+        console.error("Firebase initialization error:", error);
+      }
       
-      // Create a map with a basemap
-      const map = new Map({
-        basemap: "streets-navigation-vector",
-        layers: [graphicsLayer]
-      });
+      const database = firebase.database();
+      const pinsRef = database.ref('pins');
       
-      // Create the map view
-      const view = new MapView({
-        container: "viewDiv",
-        map: map,
-        center: [-100, 40], // Center on United States
-        zoom: 3
-      });
-      
-      // Add locate widget to help users find their location
-      const locate = new Locate({
-        view: view,
-        useHeadingEnabled: false,
-        goToOverride: function(view, options) {
-          options.target.scale = 1500;
-          return view.goTo(options.target);
-        }
-      });
-      view.ui.add(locate, "top-left");
-      
-      // Add search widget to help users find places
-      const search = new Search({
-        view: view
-      });
-      view.ui.add(search, "top-left");
-      
-      // Add basemap toggle to switch between maps
-      const basemapToggle = new BasemapToggle({
-        view: view,
-        nextBasemap: "satellite"
-      });
-      view.ui.add(basemapToggle, "bottom-right");
-      
-      // Pin data storage
-      let pins = [];
-      let activePin = null;
-      let pinMode = false;
-      
-      // UI References
-      const pinButton = document.getElementById("pinButton");
-      const saveButton = document.getElementById("saveButton");
-      const pinInfo = document.getElementById("pinInfo");
-      const pinsList = document.getElementById("pinsList");
-      const statusMessage = document.getElementById("statusMessage");
-      
-      // Enable pin mode
-      pinButton.addEventListener("click", function() {
-        if (pinMode) {
-          pinMode = false;
-          view.cursor = "default";
-          pinButton.textContent = "Add Pin";
-          pinButton.style.backgroundColor = "#4CAF50";
-        } else {
-          pinMode = true;
-          view.cursor = "crosshair";
-          pinButton.textContent = "Cancel";
-          pinButton.style.backgroundColor = "#f44336";
-        }
-      });
-      
-      // Handle saving pin info
-      saveButton.addEventListener("click", function() {
-        if (activePin !== null) {
-          const pin = pins[activePin];
-          pin.attributes.description = pinInfo.value;
+      require([
+        "esri/Map",
+        "esri/views/MapView",
+        "esri/Graphic",
+        "esri/layers/GraphicsLayer",
+        "esri/widgets/Locate",
+        "esri/widgets/Search",
+        "esri/widgets/BasemapToggle"
+      ], function(Map, MapView, Graphic, GraphicsLayer, Locate, Search, BasemapToggle) {
+        
+        try {
+          // Create a new graphics layer to hold pins
+          const graphicsLayer = new GraphicsLayer();
           
-          // Update in Firebase
-          const pinId = pin.attributes.id;
-          pinsRef.child(pinId).update({
-            description: pinInfo.value
+          // Create a map with a basemap
+          const map = new Map({
+            basemap: "streets-navigation-vector",
+            layers: [graphicsLayer]
           });
           
-          // Show status message
-          showStatusMessage("Pin saved successfully!");
+          console.log("Map created");
           
-          // Update UI
-          updatePinsList();
-          saveButton.disabled = true;
-          pinInfo.value = "";
-          activePin = null;
-        }
-      });
-      
-      // Handle view clicking for adding pins
-      view.on("click", function(event) {
-        if (pinMode) {
-          // Get the coordinates from the click event
-          const point = view.toMap({ x: event.x, y: event.y });
+          // Create the map view
+          const view = new MapView({
+            container: "viewDiv",
+            map: map,
+            center: [-100, 40], // Center on United States
+            zoom: 3
+          });
           
-          // Create a pin ID (timestamp ensures uniqueness)
-          const pinId = Date.now().toString();
+          console.log("View created");
           
-          // Create a new pin object for Firebase
-          const newPin = {
-            id: pinId,
-            longitude: point.longitude,
-            latitude: point.latitude,
-            description: "",
-            timestamp: firebase.database.ServerValue.TIMESTAMP
-          };
+          // When view is ready
+          view.when(function() {
+            console.log("View is ready");
+            
+            // Add locate widget to help users find their location
+            const locate = new Locate({
+              view: view,
+              useHeadingEnabled: false,
+              goToOverride: function(view, options) {
+                options.target.scale = 1500;
+                return view.goTo(options.target);
+              }
+            });
+            view.ui.add(locate, "top-left");
+            
+            // Add search widget to help users find places
+            const search = new Search({
+              view: view
+            });
+            view.ui.add(search, "top-left");
+            
+            // Add basemap toggle to switch between maps
+            const basemapToggle = new BasemapToggle({
+              view: view,
+              nextBasemap: "satellite"
+            });
+            view.ui.add(basemapToggle, "bottom-right");
+          });
           
-          // Add to Firebase
-          pinsRef.child(pinId).set(newPin);
+          // Pin data storage
+          let pins = [];
+          let activePin = null;
+          let pinMode = false;
           
-          // Update the UI
-          pinButton.textContent = "Add Pin";
-          pinButton.style.backgroundColor = "#4CAF50";
-          pinMode = false;
-          view.cursor = "default";
+          // UI References
+          const pinButton = document.getElementById("pinButton");
+          const saveButton = document.getElementById("saveButton");
+          const pinInfo = document.getElementById("pinInfo");
+          const pinsList = document.getElementById("pinsList");
+          const statusMessage = document.getElementById("statusMessage");
           
-          // Show status message
-          showStatusMessage("Pin added successfully!");
-        }
-      });
-      
-      // Function to update the pins list in the UI
-      function updatePinsList() {
-        pinsList.innerHTML = "";
-        
-        pins.forEach(function(pin, index) {
-          const pinItem = document.createElement("div");
-          pinItem.className = "pin-item";
+          // Enable pin mode
+          pinButton.addEventListener("click", function() {
+            if (pinMode) {
+              pinMode = false;
+              view.cursor = "default";
+              pinButton.textContent = "Add Pin";
+              pinButton.style.backgroundColor = "#4CAF50";
+            } else {
+              pinMode = true;
+              view.cursor = "crosshair";
+              pinButton.textContent = "Cancel";
+              pinButton.style.backgroundColor = "#f44336";
+            }
+          });
           
-          // Format the coordinates to 6 decimal places
-          const lat = pin.attributes.latitude.toFixed(6);
-          const lon = pin.attributes.longitude.toFixed(6);
+          // Handle saving pin info
+          saveButton.addEventListener("click", function() {
+            if (activePin !== null) {
+              const pin = pins[activePin];
+              pin.attributes.description = pinInfo.value;
+              
+              // Update in Firebase
+              const pinId = pin.attributes.id;
+              pinsRef.child(pinId).update({
+                description: pinInfo.value
+              });
+              
+              // Show status message
+              showStatusMessage("Pin saved successfully!");
+              
+              // Update UI
+              updatePinsList();
+              saveButton.disabled = true;
+              pinInfo.value = "";
+              activePin = null;
+            }
+          });
           
-          // Create the pin description
-          let pinText = `Pin ${index + 1}: [${lat}, ${lon}]`;
-          if (pin.attributes.description) {
-            pinText += ` - ${pin.attributes.description}`;
+          // Handle view clicking for adding pins
+          view.on("click", function(event) {
+            if (pinMode) {
+              // Get the coordinates from the click event
+              const point = view.toMap({ x: event.x, y: event.y });
+              
+              // Create a pin ID (timestamp ensures uniqueness)
+              const pinId = Date.now().toString();
+              
+              // Create a new pin object for Firebase
+              const newPin = {
+                id: pinId,
+                longitude: point.longitude,
+                latitude: point.latitude,
+                description: "",
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+              };
+              
+              // Add to Firebase
+              pinsRef.child(pinId).set(newPin);
+              
+              // Update the UI
+              pinButton.textContent = "Add Pin";
+              pinButton.style.backgroundColor = "#4CAF50";
+              pinMode = false;
+              view.cursor = "default";
+              
+              // Show status message
+              showStatusMessage("Pin added successfully!");
+            }
+          });
+          
+          // Function to update the pins list in the UI
+          function updatePinsList() {
+            pinsList.innerHTML = "";
+            
+            pins.forEach(function(pin, index) {
+              const pinItem = document.createElement("div");
+              pinItem.className = "pin-item";
+              
+              // Format the coordinates to 6 decimal places
+              const lat = pin.attributes.latitude.toFixed(6);
+              const lon = pin.attributes.longitude.toFixed(6);
+              
+              // Create the pin description
+              let pinText = `Pin ${index + 1}: [${lat}, ${lon}]`;
+              if (pin.attributes.description) {
+                pinText += ` - ${pin.attributes.description}`;
+              }
+              
+              pinItem.textContent = pinText;
+              
+              // Add click event to center the map on this pin
+              pinItem.addEventListener("click", function() {
+                view.goTo({
+                  target: {
+                    longitude: pin.attributes.longitude,
+                    latitude: pin.attributes.latitude
+                  },
+                  zoom: 15
+                });
+                
+                // Set as active pin
+                activePin = index;
+                pinInfo.value = pin.attributes.description;
+                saveButton.disabled = false;
+              });
+              
+              pinsList.appendChild(pinItem);
+            });
           }
           
-          pinItem.textContent = pinText;
+          // Function to show a status message
+          function showStatusMessage(message) {
+            statusMessage.textContent = message;
+            statusMessage.style.display = "block";
+            
+            // Hide after 3 seconds
+            setTimeout(function() {
+              statusMessage.style.display = "none";
+            }, 3000);
+          }
           
-          // Add click event to center the map on this pin
-          pinItem.addEventListener("click", function() {
-            view.goTo({
-              target: {
-                longitude: pin.attributes.longitude,
-                latitude: pin.attributes.latitude
+          // Delete a pin
+          document.getElementById("deleteButton").addEventListener("click", function() {
+            if (activePin !== null) {
+              const pinId = pins[activePin].attributes.id;
+              
+              // Remove from Firebase
+              pinsRef.child(pinId).remove();
+              
+              // Show status message
+              showStatusMessage("Pin deleted successfully!");
+              
+              // Update UI
+              saveButton.disabled = true;
+              pinInfo.value = "";
+              activePin = null;
+            } else {
+              alert("Please select a pin to delete");
+            }
+          });
+          
+          // Export pins as GeoJSON
+          document.getElementById("exportButton").addEventListener("click", function() {
+            if (pins.length === 0) {
+              alert("No pins to export!");
+              return;
+            }
+            
+            // Create GeoJSON structure
+            const geojson = {
+              type: "FeatureCollection",
+              features: pins.map(function(pin) {
+                return {
+                  type: "Feature",
+                  geometry: {
+                    type: "Point",
+                    coordinates: [pin.attributes.longitude, pin.attributes.latitude]
+                  },
+                  properties: {
+                    id: pin.attributes.id,
+                    description: pin.attributes.description
+                  }
+                };
+              })
+            };
+            
+            // Create a download link
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(geojson));
+            const downloadAnchor = document.createElement("a");
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "map_pins.geojson");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            
+            showStatusMessage("Pins exported successfully!");
+          });
+          
+          // Listen for pin changes in Firebase
+          pinsRef.on('child_added', function(snapshot) {
+            console.log("Pin added from Firebase:", snapshot.key);
+            const pinData = snapshot.val();
+            
+            // Create a new graphic for the pin
+            const pinGraphic = new Graphic({
+              geometry: {
+                type: "point",
+                longitude: pinData.longitude,
+                latitude: pinData.latitude
               },
-              zoom: 15
+              symbol: {
+                type: "simple-marker",
+                color: [226, 119, 40],
+                outline: {
+                  color: [255, 255, 255],
+                  width: 2
+                }
+              },
+              attributes: {
+                id: pinData.id,
+                description: pinData.description,
+                longitude: pinData.longitude,
+                latitude: pinData.latitude
+              }
             });
             
-            // Set as active pin
-            activePin = index;
-            pinInfo.value = pin.attributes.description;
-            saveButton.disabled = false;
+            // Add the pin to the graphics layer
+            graphicsLayer.add(pinGraphic);
+            
+            // Store the pin data
+            pins.push(pinGraphic);
+            
+            // Update the pins list
+            updatePinsList();
           });
           
-          pinsList.appendChild(pinItem);
-        });
-      }
-      
-      // Function to show a status message
-      function showStatusMessage(message) {
-        statusMessage.textContent = message;
-        statusMessage.style.display = "block";
-        
-        // Hide after 3 seconds
-        setTimeout(function() {
-          statusMessage.style.display = "none";
-        }, 3000);
-      }
-      
-      // Delete a pin
-      document.getElementById("deleteButton").addEventListener("click", function() {
-        if (activePin !== null) {
-          const pinId = pins[activePin].attributes.id;
-          
-          // Remove from Firebase
-          pinsRef.child(pinId).remove();
-          
-          // Show status message
-          showStatusMessage("Pin deleted successfully!");
-          
-          // Update UI
-          saveButton.disabled = true;
-          pinInfo.value = "";
-          activePin = null;
-        } else {
-          alert("Please select a pin to delete");
-        }
-      });
-      
-      // Export pins as GeoJSON
-      document.getElementById("exportButton").addEventListener("click", function() {
-        if (pins.length === 0) {
-          alert("No pins to export!");
-          return;
-        }
-        
-        // Create GeoJSON structure
-        const geojson = {
-          type: "FeatureCollection",
-          features: pins.map(function(pin) {
-            return {
-              type: "Feature",
-              geometry: {
-                type: "Point",
-                coordinates: [pin.attributes.longitude, pin.attributes.latitude]
-              },
-              properties: {
-                id: pin.attributes.id,
-                description: pin.attributes.description
-              }
-            };
-          })
-        };
-        
-        // Create a download link
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(geojson));
-        const downloadAnchor = document.createElement("a");
-        downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", "map_pins.geojson");
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-        
-        showStatusMessage("Pins exported successfully!");
-      });
-      
-      // Listen for pin changes in Firebase
-      pinsRef.on('child_added', function(snapshot) {
-        const pinData = snapshot.val();
-        
-        // Create a new graphic for the pin
-        const pinGraphic = new Graphic({
-          geometry: {
-            type: "point",
-            longitude: pinData.longitude,
-            latitude: pinData.latitude
-          },
-          symbol: {
-            type: "simple-marker",
-            color: [226, 119, 40],
-            outline: {
-              color: [255, 255, 255],
-              width: 2
+          pinsRef.on('child_changed', function(snapshot) {
+            console.log("Pin changed in Firebase:", snapshot.key);
+            const pinData = snapshot.val();
+            
+            // Find the pin in our array
+            const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
+            
+            if (index !== -1) {
+              // Update the pin attributes
+              pins[index].attributes.description = pinData.description;
+              
+              // Update the pins list
+              updatePinsList();
             }
-          },
-          attributes: {
-            id: pinData.id,
-            description: pinData.description,
-            longitude: pinData.longitude,
-            latitude: pinData.latitude
-          }
-        });
-        
-        // Add the pin to the graphics layer
-        graphicsLayer.add(pinGraphic);
-        
-        // Store the pin data
-        pins.push(pinGraphic);
-        
-        // Update the pins list
-        updatePinsList();
-      });
-      
-      pinsRef.on('child_changed', function(snapshot) {
-        const pinData = snapshot.val();
-        
-        // Find the pin in our array
-        const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
-        
-        if (index !== -1) {
-          // Update the pin attributes
-          pins[index].attributes.description = pinData.description;
+          });
           
-          // Update the pins list
-          updatePinsList();
-        }
-      });
-      
-      pinsRef.on('child_removed', function(snapshot) {
-        const pinData = snapshot.val();
-        
-        // Find the pin in our array
-        const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
-        
-        if (index !== -1) {
-          // Remove from graphics layer
-          graphicsLayer.remove(pins[index]);
+          pinsRef.on('child_removed', function(snapshot) {
+            console.log("Pin removed from Firebase:", snapshot.key);
+            const pinData = snapshot.val();
+            
+            // Find the pin in our array
+            const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
+            
+            if (index !== -1) {
+              // Remove from graphics layer
+              graphicsLayer.remove(pins[index]);
+              
+              // Remove from pins array
+              pins.splice(index, 1);
+              
+              // Update the pins list
+              updatePinsList();
+            }
+          });
           
-          // Remove from pins array
-          pins.splice(index, 1);
-          
-          // Update the pins list
-          updatePinsList();
+        } catch (error) {
+          console.error("Error in ArcGIS initialization:", error);
+          alert("There was an error loading the map. Please check the console for details.");
         }
       });
     });
