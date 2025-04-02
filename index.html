@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>ArcGIS Interactive Map with Persistent Pins</title>
+  <title>RADD - Interactive Map with Shared Pins</title>
   <style>
     html, body, #viewDiv {
       padding: 0;
@@ -88,7 +88,29 @@
   <link rel="stylesheet" href="https://js.arcgis.com/4.27/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.27/"></script>
   
+  <!-- Firebase App (the core Firebase SDK) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <!-- Firebase Database -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  
   <script>
+    // Firebase configuration with your actual Firebase details
+    const firebaseConfig = {
+      apiKey: "AIzaSyD6X19rtnpFKKElYRmY8dO_ZmWnXfhXyM0",
+      authDomain: "radd-86f5f.firebaseapp.com",
+      databaseURL: "https://radd-86f5f-default-rtdb.firebaseio.com",
+      projectId: "radd-86f5f",
+      storageBucket: "radd-86f5f.firebasestorage.app",
+      messagingSenderId: "958503415106",
+      appId: "1:958503415106:web:e169eceec47aaf7187ecdb",
+      measurementId: "G-NRJ2NL8G68"
+    };
+    
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const pinsRef = database.ref('pins');
+    
     require([
       "esri/Map",
       "esri/views/MapView",
@@ -170,10 +192,14 @@
       // Handle saving pin info
       saveButton.addEventListener("click", function() {
         if (activePin !== null) {
-          pins[activePin].attributes.description = pinInfo.value;
+          const pin = pins[activePin];
+          pin.attributes.description = pinInfo.value;
           
-          // Save to localStorage
-          saveToLocalStorage();
+          // Update in Firebase
+          const pinId = pin.attributes.id;
+          pinsRef.child(pinId).update({
+            description: pinInfo.value
+          });
           
           // Show status message
           showStatusMessage("Pin saved successfully!");
@@ -195,48 +221,26 @@
           // Create a pin ID (timestamp ensures uniqueness)
           const pinId = Date.now().toString();
           
-          // Create a new graphic for the pin
-          const pinGraphic = new Graphic({
-            geometry: {
-              type: "point",
-              longitude: point.longitude,
-              latitude: point.latitude
-            },
-            symbol: {
-              type: "simple-marker",
-              color: [226, 119, 40],
-              outline: {
-                color: [255, 255, 255],
-                width: 2
-              }
-            },
-            attributes: {
-              id: pinId,
-              description: "",
-              longitude: point.longitude,
-              latitude: point.latitude
-            }
-          });
+          // Create a new pin object for Firebase
+          const newPin = {
+            id: pinId,
+            longitude: point.longitude,
+            latitude: point.latitude,
+            description: "",
+            timestamp: firebase.database.ServerValue.TIMESTAMP
+          };
           
-          // Add the pin to the graphics layer
-          graphicsLayer.add(pinGraphic);
-          
-          // Store the pin data
-          pins.push(pinGraphic);
-          
-          // Set this as the active pin
-          activePin = pins.length - 1;
+          // Add to Firebase
+          pinsRef.child(pinId).set(newPin);
           
           // Update the UI
-          pinInfo.value = "";
-          saveButton.disabled = false;
           pinButton.textContent = "Add Pin";
           pinButton.style.backgroundColor = "#4CAF50";
           pinMode = false;
           view.cursor = "default";
           
-          // Update the pins list
-          updatePinsList();
+          // Show status message
+          showStatusMessage("Pin added successfully!");
         }
       });
       
@@ -280,69 +284,6 @@
         });
       }
       
-      // Function to save pins to localStorage
-      function saveToLocalStorage() {
-        // Convert pins to a format suitable for storage
-        const pinsToSave = pins.map(function(pin) {
-          return {
-            id: pin.attributes.id,
-            longitude: pin.attributes.longitude,
-            latitude: pin.attributes.latitude,
-            description: pin.attributes.description
-          };
-        });
-        
-        // Save to localStorage
-        localStorage.setItem("arcgisPins", JSON.stringify(pinsToSave));
-      }
-      
-      // Function to load pins from localStorage
-      function loadFromLocalStorage() {
-        const savedPins = localStorage.getItem("arcgisPins");
-        
-        if (savedPins) {
-          const parsedPins = JSON.parse(savedPins);
-          
-          // Clear existing pins
-          graphicsLayer.removeAll();
-          pins = [];
-          
-          // Add each saved pin
-          parsedPins.forEach(function(pinData) {
-            const pinGraphic = new Graphic({
-              geometry: {
-                type: "point",
-                longitude: pinData.longitude,
-                latitude: pinData.latitude
-              },
-              symbol: {
-                type: "simple-marker",
-                color: [226, 119, 40],
-                outline: {
-                  color: [255, 255, 255],
-                  width: 2
-                }
-              },
-              attributes: {
-                id: pinData.id,
-                description: pinData.description,
-                longitude: pinData.longitude,
-                latitude: pinData.latitude
-              }
-            });
-            
-            // Add the pin to the graphics layer
-            graphicsLayer.add(pinGraphic);
-            
-            // Store the pin data
-            pins.push(pinGraphic);
-          });
-          
-          // Update the pins list
-          updatePinsList();
-        }
-      }
-
       // Function to show a status message
       function showStatusMessage(message) {
         statusMessage.textContent = message;
@@ -357,20 +298,15 @@
       // Delete a pin
       document.getElementById("deleteButton").addEventListener("click", function() {
         if (activePin !== null) {
-          // Remove from graphics layer
-          graphicsLayer.remove(pins[activePin]);
+          const pinId = pins[activePin].attributes.id;
           
-          // Remove from pins array
-          pins.splice(activePin, 1);
-          
-          // Save to localStorage
-          saveToLocalStorage();
+          // Remove from Firebase
+          pinsRef.child(pinId).remove();
           
           // Show status message
           showStatusMessage("Pin deleted successfully!");
           
           // Update UI
-          updatePinsList();
           saveButton.disabled = true;
           pinInfo.value = "";
           activePin = null;
@@ -416,91 +352,75 @@
         showStatusMessage("Pins exported successfully!");
       });
       
-      // Import GeoJSON
-      document.getElementById("importButton").addEventListener("click", function() {
-        document.getElementById("fileInput").click();
+      // Listen for pin changes in Firebase
+      pinsRef.on('child_added', function(snapshot) {
+        const pinData = snapshot.val();
+        
+        // Create a new graphic for the pin
+        const pinGraphic = new Graphic({
+          geometry: {
+            type: "point",
+            longitude: pinData.longitude,
+            latitude: pinData.latitude
+          },
+          symbol: {
+            type: "simple-marker",
+            color: [226, 119, 40],
+            outline: {
+              color: [255, 255, 255],
+              width: 2
+            }
+          },
+          attributes: {
+            id: pinData.id,
+            description: pinData.description,
+            longitude: pinData.longitude,
+            latitude: pinData.latitude
+          }
+        });
+        
+        // Add the pin to the graphics layer
+        graphicsLayer.add(pinGraphic);
+        
+        // Store the pin data
+        pins.push(pinGraphic);
+        
+        // Update the pins list
+        updatePinsList();
       });
       
-      // Handle file selection
-      document.getElementById("fileInput").addEventListener("change", function(event) {
-        const file = event.target.files[0];
+      pinsRef.on('child_changed', function(snapshot) {
+        const pinData = snapshot.val();
         
-        if (file) {
-          const reader = new FileReader();
+        // Find the pin in our array
+        const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
+        
+        if (index !== -1) {
+          // Update the pin attributes
+          pins[index].attributes.description = pinData.description;
           
-          reader.onload = function(e) {
-            try {
-              const geojson = JSON.parse(e.target.result);
-              
-              // Validate GeoJSON
-              if (geojson.type !== "FeatureCollection") {
-                throw new Error("Invalid GeoJSON: Not a FeatureCollection");
-              }
-              
-              // Clear existing pins
-              graphicsLayer.removeAll();
-              pins = [];
-              
-              // Add each feature as a pin
-              geojson.features.forEach(function(feature) {
-                if (feature.geometry.type === "Point") {
-                  const pinId = feature.properties.id || Date.now().toString();
-                  const pinDescription = feature.properties.description || "";
-                  const longitude = feature.geometry.coordinates[0];
-                  const latitude = feature.geometry.coordinates[1];
-                  
-                  const pinGraphic = new Graphic({
-                    geometry: {
-                      type: "point",
-                      longitude: longitude,
-                      latitude: latitude
-                    },
-                    symbol: {
-                      type: "simple-marker",
-                      color: [226, 119, 40],
-                      outline: {
-                        color: [255, 255, 255],
-                        width: 2
-                      }
-                    },
-                    attributes: {
-                      id: pinId,
-                      description: pinDescription,
-                      longitude: longitude,
-                      latitude: latitude
-                    }
-                  });
-                  
-                  // Add the pin to the graphics layer
-                  graphicsLayer.add(pinGraphic);
-                  
-                  // Store the pin data
-                  pins.push(pinGraphic);
-                }
-              });
-              
-              // Save to localStorage
-              saveToLocalStorage();
-              
-              // Update the pins list
-              updatePinsList();
-              
-              // Show status message
-              showStatusMessage("Pins imported successfully!");
-              
-              // Reset file input
-              document.getElementById("fileInput").value = "";
-            } catch (error) {
-              alert("Error importing GeoJSON: " + error.message);
-            }
-          };
-          
-          reader.readAsText(file);
+          // Update the pins list
+          updatePinsList();
         }
       });
       
-      // Initial load from localStorage
-      loadFromLocalStorage();
+      pinsRef.on('child_removed', function(snapshot) {
+        const pinData = snapshot.val();
+        
+        // Find the pin in our array
+        const index = pins.findIndex(pin => pin.attributes.id === pinData.id);
+        
+        if (index !== -1) {
+          // Remove from graphics layer
+          graphicsLayer.remove(pins[index]);
+          
+          // Remove from pins array
+          pins.splice(index, 1);
+          
+          // Update the pins list
+          updatePinsList();
+        }
+      });
     });
   </script>
 </head>
@@ -516,8 +436,6 @@
     <button id="saveButton" class="button" disabled>Save Pin Info</button>
     <button id="deleteButton" class="button">Delete Pin</button>
     <button id="exportButton" class="button">Export Pins</button>
-    <button id="importButton" class="button">Import Pins</button>
-    <input type="file" id="fileInput" accept=".geojson,.json" style="display: none;">
     <div id="statusMessage"></div>
   </div>
   
