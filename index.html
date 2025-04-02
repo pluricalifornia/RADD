@@ -90,9 +90,9 @@
   <script src="https://js.arcgis.com/4.27/"></script>
   
   <!-- Firebase App (the core Firebase SDK) -->
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <!-- Firebase Database -->
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   
   <script>
     // Wait for the document to load
@@ -111,14 +111,19 @@
       
       // Initialize Firebase
       try {
-        firebase.initializeApp(firebaseConfig);
-        console.log("Firebase initialized successfully");
+        if (typeof firebase !== 'undefined') {
+          firebase.initializeApp(firebaseConfig);
+          console.log("Firebase initialized successfully");
+        } else {
+          console.error("Firebase is not defined. Make sure the Firebase scripts are loaded properly.");
+        }
       } catch (error) {
         console.error("Firebase initialization error:", error);
       }
       
-      const database = firebase.database();
-      const pinsRef = database.ref('pins');
+      // Only create database reference if Firebase is defined
+      const database = typeof firebase !== 'undefined' ? firebase.database() : null;
+      const pinsRef = database ? database.ref('pins') : null;
       
       require([
         "esri/Map",
