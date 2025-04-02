@@ -8,6 +8,9 @@
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
+  <!-- Leaflet Geocoder CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  
   <style>
     html, body {
       height: 100%;
@@ -30,6 +33,40 @@
       border-radius: 4px;
       box-shadow: 0 1px 5px rgba(0,0,0,0.4);
       max-width: 300px;
+    }
+    
+    #search-container {
+      position: absolute;
+      top: 10px;
+      left: 50px;
+      z-index: 1000;
+      background: white;
+      padding: 10px;
+      border-radius: 4px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      width: 300px;
+      display: flex;
+    }
+    
+    #search-input {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px 0 0 4px;
+      outline: none;
+    }
+    
+    #search-button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 8px 12px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: 0 4px 4px 0;
     }
     
     #pin-list {
@@ -98,10 +135,46 @@
     #delete-pin {
       background-color: #f44336;
     }
+
+    .leaflet-marker-icon {
+      width: 25px !important;
+      height: 41px !important;
+    }
+    
+    #search-results {
+      position: absolute;
+      top: 50px;
+      left: 50px;
+      z-index: 1000;
+      background: white;
+      border-radius: 4px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      width: 300px;
+      max-height: 300px;
+      overflow-y: auto;
+      display: none;
+    }
+    
+    .search-result-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .search-result-item:hover {
+      background-color: #f5f5f5;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  
+  <div id="search-container">
+    <input id="search-input" type="text" placeholder="Search for an address or location">
+    <button id="search-button">Search</button>
+  </div>
+  
+  <div id="search-results"></div>
   
   <div id="controls">
     <button id="add-pin" class="button">Add Pin</button>
@@ -114,12 +187,15 @@
   </div>
   
   <div id="pin-list">
-    <h3>Pins</h3>
+    <h3>Pins (<span id="pin-count">0</span>)</h3>
     <div id="pins-container"></div>
   </div>
   
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Leaflet Geocoder -->
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
   
   <!-- Firebase App -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -151,13 +227,16 @@
         return;
       }
       
-      // Initialize map
-      const map = L.map('map').setView([37.7749, -122.4194], 13);
+      // Initialize map with a default view of the US
+      const map = L.map('map').setView([39.8283, -98.5795], 4);
       
       // Add tile layer (base map)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
+      
+      // Initialize the geocoder
+      const geocoder = L.Control.Geocoder.nominatim();
       
       // Reference to the pins in Firebase
       const pinsRef = firebase.database().ref('pins');
@@ -168,6 +247,7 @@
       // Track the currently selected pin
       let selectedPin = null;
       let addingPin = false;
+      let searchMarker = null;
       
       // UI elements
       const addPinButton = document.getElementById('add-pin');
@@ -177,10 +257,155 @@
       const deletePinButton = document.getElementById('delete-pin');
       const statusMessage = document.getElementById('status-message');
       const pinsContainer = document.getElementById('pins-container');
+      const pinCount = document.getElementById('pin-count');
+      const searchInput = document.getElementById('search-input');
+      const searchButton = document.getElementById('search-button');
+      const searchResults = document.getElementById('search-results');
       
       // Initially disable save and delete buttons until a pin is selected
       savePinButton.disabled = true;
       deletePinButton.disabled = true;
+      
+      // Search function
+      function performSearch() {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        
+        // Clear previous search results
+        searchResults.innerHTML = '';
+        searchResults.style.display = 'none';
+        
+        // Remove previous search marker if it exists
+        if (searchMarker) {
+          map.removeLayer(searchMarker);
+          searchMarker = null;
+        }
+        
+        // Perform geocoding
+        geocoder.geocode(query, function(results) {
+          if (results && results.length > 0) {
+            // If only one result, go directly to it
+            if (results.length === 1) {
+              goToSearchResult(results[0]);
+              return;
+            }
+            
+            // Display search results
+            searchResults.style.display = 'block';
+            
+            // Create a list of results
+            results.forEach(function(result, index) {
+              const resultItem = document.createElement('div');
+              resultItem.className = 'search-result-item';
+              resultItem.textContent = result.name;
+              resultItem.addEventListener('click', function() {
+                goToSearchResult(result);
+                searchResults.style.display = 'none';
+              });
+              
+              searchResults.appendChild(resultItem);
+            });
+          } else {
+            // No results found
+            const noResults = document.createElement('div');
+            noResults.className = 'search-result-item';
+            noResults.textContent = 'No results found';
+            searchResults.appendChild(noResults);
+            searchResults.style.display = 'block';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+              searchResults.style.display = 'none';
+            }, 3000);
+          }
+        });
+      }
+      
+      // Go to a search result
+      function goToSearchResult(result) {
+        // Get coordinates from the result
+        const latlng = result.center;
+        
+        // Center map on the result
+        map.setView(latlng, 15);
+        
+        // Add a temporary marker at the location
+        const searchIcon = L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+          shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        });
+        
+        searchMarker = L.marker(latlng, {
+          icon: searchIcon,
+          title: result.name
+        }).addTo(map);
+        
+        // Add a popup with the name and a "Add pin here" button
+        const popupContent = document.createElement('div');
+        popupContent.innerHTML = `
+          <strong>${result.name}</strong><br>
+          <button id="add-pin-here" style="margin-top: 5px; padding: 5px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">Add pin here</button>
+        `;
+        
+        const popup = L.popup().setContent(popupContent);
+        searchMarker.bindPopup(popup).openPopup();
+        
+        // Add event listener after the popup is opened
+        searchMarker.on('popupopen', function() {
+          document.getElementById('add-pin-here').addEventListener('click', function() {
+            // Create a new pin at this location
+            addPinAtLocation(latlng.lat, latlng.lng);
+            // Close the popup
+            searchMarker.closePopup();
+            // Remove the search marker
+            map.removeLayer(searchMarker);
+            searchMarker = null;
+          });
+        });
+      }
+      
+      // Add a pin at a specific location
+      function addPinAtLocation(lat, lng) {
+        const timestamp = Date.now().toString();
+        const newPin = {
+          id: timestamp,
+          latitude: lat,
+          longitude: lng,
+          description: '',
+          timestamp: firebase.database.ServerValue.TIMESTAMP
+        };
+        
+        console.log("Adding pin at:", lat, lng);
+        
+        // Save to Firebase
+        pinsRef.child(timestamp).set(newPin)
+          .then(() => {
+            showStatus('Pin added successfully');
+          })
+          .catch(error => {
+            console.error('Error adding pin: ', error);
+            showStatus('Error adding pin', 'error');
+          });
+      }
+      
+      // Search input event listeners
+      searchButton.addEventListener('click', performSearch);
+      searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          performSearch();
+        }
+      });
+      
+      // Close search results when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!searchResults.contains(e.target) && e.target !== searchInput && e.target !== searchButton) {
+          searchResults.style.display = 'none';
+        }
+      });
       
       // Add a new pin
       addPinButton.addEventListener('click', function() {
@@ -245,28 +470,13 @@
       // Map click handler to add pins
       map.on('click', function(e) {
         if (addingPin) {
-          const timestamp = Date.now().toString();
-          const newPin = {
-            id: timestamp,
-            latitude: e.latlng.lat,
-            longitude: e.latlng.lng,
-            description: '',
-            timestamp: firebase.database.ServerValue.TIMESTAMP
-          };
+          addPinAtLocation(e.latlng.lat, e.latlng.lng);
           
-          // Save to Firebase
-          pinsRef.child(timestamp).set(newPin)
-            .then(() => {
-              addingPin = false;
-              addPinButton.textContent = 'Add Pin';
-              addPinButton.classList.remove('cancel');
-              map.getContainer().style.cursor = '';
-              showStatus('Pin added successfully');
-            })
-            .catch(error => {
-              console.error('Error adding pin: ', error);
-              showStatus('Error adding pin', 'error');
-            });
+          // Reset pin mode
+          addingPin = false;
+          addPinButton.textContent = 'Add Pin';
+          addPinButton.classList.remove('cancel');
+          map.getContainer().style.cursor = '';
         }
       });
       
@@ -276,6 +486,19 @@
         pinDescription.value = '';
         savePinButton.disabled = true;
         deletePinButton.disabled = true;
+        
+        // Reset all markers to default icon
+        Object.values(markers).forEach(m => {
+          const icon = L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          });
+          m.setIcon(icon);
+        });
       }
       
       // Show a status message
@@ -296,6 +519,9 @@
         
         // Convert markers object to array for sorting
         const markerEntries = Object.entries(markers);
+        
+        // Update pin count
+        pinCount.textContent = markerEntries.length;
         
         // If there are no pins, show a message
         if (markerEntries.length === 0) {
@@ -348,52 +574,121 @@
           pinDescription.value = marker.options.description || '';
           deletePinButton.disabled = false;
           savePinButton.disabled = true; // Enable only when changes are made
+          
+          // Highlight the selected marker
+          Object.values(markers).forEach(m => {
+            // Reset all markers to default
+            const icon = L.icon({
+              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34],
+              shadowSize: [41, 41]
+            });
+            m.setIcon(icon);
+          });
+          
+          // Set selected marker with red icon
+          const selectedIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          });
+          marker.setIcon(selectedIcon);
         }
+      }
+      
+      // Function to create a marker from pin data
+      function createMarkerFromPin(pinData, pinId) {
+        if (!pinData || typeof pinData.latitude !== 'number' || typeof pinData.longitude !== 'number') {
+          console.error('Invalid pin data:', pinData);
+          return null;
+        }
+        
+        console.log("Creating marker at:", pinData.latitude, pinData.longitude);
+        
+        // Use default Leaflet marker icon
+        const defaultIcon = L.icon({
+          iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+          shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        });
+        
+        // Create the marker
+        const marker = L.marker([pinData.latitude, pinData.longitude], {
+          icon: defaultIcon,
+          title: pinData.description || 'Pin',
+          id: pinId,
+          description: pinData.description || '',
+          timestamp: pinData.timestamp
+        }).addTo(map);
+        
+        // Add click handler
+        marker.on('click', function() {
+          selectPin(pinId);
+        });
+        
+        // Add tooltip if there's a description
+        if (pinData.description && pinData.description.trim() !== '') {
+          marker.bindTooltip(pinData.description);
+        }
+        
+        return marker;
       }
       
       // Listen for pins added to Firebase
       pinsRef.on('child_added', snapshot => {
+        console.log("Pin added from Firebase:", snapshot.key);
         const pin = snapshot.val();
         const pinId = snapshot.key;
         
-        if (!pin || !pin.latitude || !pin.longitude) {
-          console.error('Invalid pin data:', pin);
+        // Validate pin data
+        if (!pin) {
+          console.error("Pin data is null for key:", pinId);
           return;
         }
         
-        try {
-          // Create a marker
-          const marker = L.marker([pin.latitude, pin.longitude], {
-            title: pin.description || 'Pin',
-            id: pinId,
-            description: pin.description || '',
-            timestamp: pin.timestamp
-          }).addTo(map);
-          
+        console.log("Pin data:", pin);
+        
+        // Create a marker
+        const marker = createMarkerFromPin(pin, pinId);
+        
+        if (marker) {
           // Store in our markers object
           markers[pinId] = marker;
           
-          // Add click handler
-          marker.on('click', function() {
-            selectPin(pinId);
-          });
-          
           // Update the pins list
           updatePinsList();
-        } catch (error) {
-          console.error('Error creating marker:', error);
+          
+          // If this is the first pin, center the map on it
+          if (Object.keys(markers).length === 1) {
+            map.setView([pin.latitude, pin.longitude], 15);
+          }
         }
       });
       
       // Listen for pins changed in Firebase
       pinsRef.on('child_changed', snapshot => {
+        console.log("Pin changed in Firebase:", snapshot.key);
         const pin = snapshot.val();
         const pinId = snapshot.key;
         const marker = markers[pinId];
         
         if (marker) {
           marker.options.description = pin.description || '';
-          marker.setTooltipContent(pin.description || 'Pin');
+          
+          // Update tooltip
+          if (pin.description && pin.description.trim() !== '') {
+            marker.unbindTooltip();
+            marker.bindTooltip(pin.description);
+          }
           
           // If this is the currently selected pin, update the description field
           if (selectedPin === pinId) {
@@ -408,6 +703,7 @@
       
       // Listen for pins removed from Firebase
       pinsRef.on('child_removed', snapshot => {
+        console.log("Pin removed from Firebase:", snapshot.key);
         const pinId = snapshot.key;
         const marker = markers[pinId];
         
@@ -428,18 +724,15 @@
         }
       });
       
-      // Add tooltips to markers to show their descriptions
-      function addTooltipToMarker(marker, description) {
-        if (description && description.trim() !== '') {
-          marker.bindTooltip(description);
-        }
-      }
-      
       // Handle errors
-      pinsRef.on('child_added', error => {
-        if (error) {
-          console.error('Error fetching pins:', error);
-        }
+      pinsRef.on('error', error => {
+        console.error('Firebase error:', error);
+        showStatus('Database error. See console for details.', 'error');
+      });
+      
+      // Log when we're connected to Firebase
+      pinsRef.once('value', () => {
+        console.log("Successfully connected to Firebase and retrieved pins");
       });
     });
   </script>
