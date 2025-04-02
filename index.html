@@ -94,6 +94,10 @@
       margin-top: 5px;
       display: none;
     }
+    
+    #delete-pin {
+      background-color: #f44336;
+    }
   </style>
 </head>
 <body>
@@ -101,10 +105,10 @@
   
   <div id="controls">
     <button id="add-pin" class="button">Add Pin</button>
-    <div id="pin-info-container" style="display: none;">
+    <div id="pin-info-container">
       <textarea id="pin-description" placeholder="Enter description for this pin"></textarea>
-      <button id="save-pin" class="button">Save</button>
-      <button id="delete-pin" class="button">Delete</button>
+      <button id="save-pin" class="button">Save Pin</button>
+      <button id="delete-pin" class="button">Delete Pin</button>
     </div>
     <div id="status-message" class="status"></div>
   </div>
@@ -124,27 +128,28 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   
   <script>
-    // Initialize Firebase
-    const firebaseConfig = {
-      apiKey: "AIzaSyD6X19rtnpFKKElYRmY8dO_ZmWnXfhXyM0",
-      authDomain: "radd-86f5f.firebaseapp.com",
-      databaseURL: "https://radd-86f5f-default-rtdb.firebaseio.com",
-      projectId: "radd-86f5f",
-      storageBucket: "radd-86f5f.firebasestorage.app",
-      messagingSenderId: "958503415106",
-      appId: "1:958503415106:web:e169eceec47aaf7187ecdb",
-      measurementId: "G-NRJ2NL8G68"
-    };
-    
-    // Make sure Firebase is loaded
+    // Wait for DOM content to load
     document.addEventListener("DOMContentLoaded", function() {
-      if (typeof firebase === 'undefined') {
-        console.error("Firebase is not loaded");
+      // Initialize Firebase
+      const firebaseConfig = {
+        apiKey: "AIzaSyD6X19rtnpFKKElYRmY8dO_ZmWnXfhXyM0",
+        authDomain: "radd-86f5f.firebaseapp.com",
+        databaseURL: "https://radd-86f5f-default-rtdb.firebaseio.com",
+        projectId: "radd-86f5f",
+        storageBucket: "radd-86f5f.firebasestorage.app",
+        messagingSenderId: "958503415106",
+        appId: "1:958503415106:web:e169eceec47aaf7187ecdb",
+        measurementId: "G-NRJ2NL8G68"
+      };
+      
+      try {
+        firebase.initializeApp(firebaseConfig);
+        console.log("Firebase initialized successfully");
+      } catch (error) {
+        console.error("Firebase initialization error:", error);
+        alert("Error initializing Firebase. See console for details.");
         return;
       }
-      
-      // Initialize Firebase
-      firebase.initializeApp(firebaseConfig);
       
       // Initialize map
       const map = L.map('map').setView([37.7749, -122.4194], 13);
@@ -172,6 +177,10 @@
       const deletePinButton = document.getElementById('delete-pin');
       const statusMessage = document.getElementById('status-message');
       const pinsContainer = document.getElementById('pins-container');
+      
+      // Initially disable save and delete buttons until a pin is selected
+      savePinButton.disabled = true;
+      deletePinButton.disabled = true;
       
       // Add a new pin
       addPinButton.addEventListener('click', function() {
@@ -201,7 +210,7 @@
             description: description
           }).then(() => {
             showStatus('Pin updated successfully');
-            clearSelection();
+            savePinButton.disabled = true;
           }).catch(error => {
             console.error('Error updating pin: ', error);
             showStatus('Error updating pin', 'error');
@@ -212,15 +221,24 @@
       // Delete a pin
       deletePinButton.addEventListener('click', function() {
         if (selectedPin) {
-          // Remove from Firebase
-          pinsRef.child(selectedPin).remove()
-            .then(() => {
-              showStatus('Pin deleted successfully');
-              clearSelection();
-            }).catch(error => {
-              console.error('Error deleting pin: ', error);
-              showStatus('Error deleting pin', 'error');
-            });
+          if (confirm('Are you sure you want to delete this pin?')) {
+            // Remove from Firebase
+            pinsRef.child(selectedPin).remove()
+              .then(() => {
+                showStatus('Pin deleted successfully');
+                clearSelection();
+              }).catch(error => {
+                console.error('Error deleting pin: ', error);
+                showStatus('Error deleting pin', 'error');
+              });
+          }
+        }
+      });
+      
+      // Enable save button when pin description changes
+      pinDescription.addEventListener('input', function() {
+        if (selectedPin) {
+          savePinButton.disabled = false;
         }
       });
       
@@ -256,7 +274,8 @@
       function clearSelection() {
         selectedPin = null;
         pinDescription.value = '';
-        pinInfoContainer.style.display = 'none';
+        savePinButton.disabled = true;
+        deletePinButton.disabled = true;
       }
       
       // Show a status message
@@ -275,15 +294,26 @@
       function updatePinsList() {
         pinsContainer.innerHTML = '';
         
+        // Convert markers object to array for sorting
+        const markerEntries = Object.entries(markers);
+        
+        // If there are no pins, show a message
+        if (markerEntries.length === 0) {
+          const noPin = document.createElement('div');
+          noPin.textContent = 'No pins added yet.';
+          pinsContainer.appendChild(noPin);
+          return;
+        }
+        
         // Sort pins by timestamp (newest first)
-        const sortedPinIds = Object.keys(markers).sort((a, b) => {
-          const timestampA = markers[a].options.timestamp || 0;
-          const timestampB = markers[b].options.timestamp || 0;
+        const sortedEntries = markerEntries.sort((a, b) => {
+          const timestampA = a[1].options.timestamp || 0;
+          const timestampB = b[1].options.timestamp || 0;
           return timestampB - timestampA;
         });
         
-        sortedPinIds.forEach(pinId => {
-          const marker = markers[pinId];
+        let index = 1;
+        sortedEntries.forEach(([pinId, marker]) => {
           const item = document.createElement('div');
           item.className = 'pin-item';
           
@@ -291,9 +321,9 @@
           const lat = marker.getLatLng().lat.toFixed(6);
           const lng = marker.getLatLng().lng.toFixed(6);
           
-          let text = `[${lat}, ${lng}]`;
+          let text = `Pin ${index}: [${lat}, ${lng}]`;
           if (marker.options.description) {
-            text += `: ${marker.options.description}`;
+            text += ` - ${marker.options.description}`;
           }
           
           item.textContent = text;
@@ -305,6 +335,7 @@
           });
           
           pinsContainer.appendChild(item);
+          index++;
         });
       }
       
@@ -315,7 +346,8 @@
         
         if (marker) {
           pinDescription.value = marker.options.description || '';
-          pinInfoContainer.style.display = 'block';
+          deletePinButton.disabled = false;
+          savePinButton.disabled = true; // Enable only when changes are made
         }
       }
       
@@ -324,24 +356,33 @@
         const pin = snapshot.val();
         const pinId = snapshot.key;
         
-        // Create a marker
-        const marker = L.marker([pin.latitude, pin.longitude], {
-          title: pin.description || 'Pin',
-          id: pinId,
-          description: pin.description || '',
-          timestamp: pin.timestamp
-        }).addTo(map);
+        if (!pin || !pin.latitude || !pin.longitude) {
+          console.error('Invalid pin data:', pin);
+          return;
+        }
         
-        // Store in our markers object
-        markers[pinId] = marker;
-        
-        // Add click handler
-        marker.on('click', function() {
-          selectPin(pinId);
-        });
-        
-        // Update the pins list
-        updatePinsList();
+        try {
+          // Create a marker
+          const marker = L.marker([pin.latitude, pin.longitude], {
+            title: pin.description || 'Pin',
+            id: pinId,
+            description: pin.description || '',
+            timestamp: pin.timestamp
+          }).addTo(map);
+          
+          // Store in our markers object
+          markers[pinId] = marker;
+          
+          // Add click handler
+          marker.on('click', function() {
+            selectPin(pinId);
+          });
+          
+          // Update the pins list
+          updatePinsList();
+        } catch (error) {
+          console.error('Error creating marker:', error);
+        }
       });
       
       // Listen for pins changed in Firebase
@@ -352,10 +393,12 @@
         
         if (marker) {
           marker.options.description = pin.description || '';
+          marker.setTooltipContent(pin.description || 'Pin');
           
           // If this is the currently selected pin, update the description field
           if (selectedPin === pinId) {
             pinDescription.value = pin.description || '';
+            savePinButton.disabled = true;
           }
           
           // Update the pins list
@@ -382,6 +425,20 @@
           
           // Update the pins list
           updatePinsList();
+        }
+      });
+      
+      // Add tooltips to markers to show their descriptions
+      function addTooltipToMarker(marker, description) {
+        if (description && description.trim() !== '') {
+          marker.bindTooltip(description);
+        }
+      }
+      
+      // Handle errors
+      pinsRef.on('child_added', error => {
+        if (error) {
+          console.error('Error fetching pins:', error);
         }
       });
     });
