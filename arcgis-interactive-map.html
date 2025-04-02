@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>ArcGIS Interactive Map with User Pinning</title>
+  <style>
+    html, body, #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+    
+    #topbar {
+      background: #fff;
+      padding: 10px;
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      z-index: 1;
+      border-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+    
+    #infoDiv {
+      background: #fff;
+      padding: 10px;
+      position: absolute;
+      bottom: 15px;
+      left: 15px;
+      z-index: 1;
+      border-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      max-width: 300px;
+      max-height: 200px;
+      overflow: auto;
+    }
+    
+    .button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    
+    .button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .input-label {
+      display: block;
+      margin: 5px 0;
+    }
+    
+    #pinInfo {
+      width: 100%;
+      resize: vertical;
+      min-height: 50px;
+    }
+  </style>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/esri-leaflet/3.0.10/esri-leaflet.js.map">
+  <link rel="stylesheet" href="https://js.arcgis.com/4.27/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.27/"></script>
+  
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/Graphic",
+      "esri/layers/GraphicsLayer",
+      "esri/widgets/Locate",
+      "esri/widgets/Search",
+      "esri/widgets/BasemapToggle"
+    ], function(Map, MapView, Graphic, GraphicsLayer, Locate, Search, BasemapToggle) {
+      
+      // Create a new graphics layer to hold pins
+      const graphicsLayer = new GraphicsLayer();
+      
+      // Create a map with a basemap
+      const map = new Map({
+        basemap: "streets-navigation-vector",
+        layers: [graphicsLayer]
+      });
+      
+      // Create the map view
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [-100, 40], // Center on United States
+        zoom: 3
+      });
+      
+      // Add locate widget to help users find their location
+      const locate = new Locate({
+        view: view,
+        useHeadingEnabled: false,
+        goToOverride: function(view, options) {
+          options.target.scale = 1500;
+          return view.goTo(options.target);
+        }
+      });
+      view.ui.add(locate, "top-left");
+      
+      // Add search widget to help users find places
+      const search = new Search({
+        view: view
+      });
+      view.ui.add(search, "top-left");
+      
+      // Add basemap toggle to switch between maps
+      const basemapToggle = new BasemapToggle({
+        view: view,
+        nextBasemap: "satellite"
+      });
+      view.ui.add(basemapToggle, "bottom-right");
+      
+      // Pin data storage
+      let pins = [];
+      let activePin = null;
+      let pinMode = false;
+      
+      // UI References
+      const pinButton = document.getElementById("pinButton");
+      const saveButton = document.getElementById("saveButton");
+      const pinInfo = document.getElementById("pinInfo");
+      const pinsList = document.getElementById("pinsList");
+      
+      // Enable pin mode
+      pinButton.addEventListener("click", function() {
+        if (pinMode) {
+          pinMode = false;
+          view.cursor = "default";
+          pinButton.textContent = "Add Pin";
+          pinButton.style.backgroundColor = "#4CAF50";
+        } else {
+          pinMode = true;
+          view.cursor = "crosshair";
+          pinButton.textContent = "Cancel";
+          pinButton.style.backgroundColor = "#f44336";
+        }
+      });
+      
+      // Handle saving pin info
+      saveButton.addEventListener("click", function() {
+        if (activePin !== null) {
+          pins[activePin].attributes.description = pinInfo.value;
+          updatePinsList();
+          saveButton.disabled = true;
+          pinInfo.value = "";
+          activePin = null;
+        }
+      });
+      
+      // Handle view clicking for adding pins
+      view.on("click", function(event) {
+        if (pinMode) {
+          // Get the coordinates from the click event
+          const point = view.toMap({ x: event.x, y: event.y });
+          
+          // Create a new graphic for the pin
+          const pinGraphic = new Graphic({
+            geometry: {
+              type: "point",
+              longitude: point.longitude,
+              latitude: point.latitude
+            },
+            symbol: {
+              type: "simple-marker",
+              color: [226, 119, 40],
+              outline: {
+                color: [255, 255, 255],
+                width: 2
+              }
+            },
+            attributes: {
+              id: pins.length,
+              description: "",
+              longitude: point.longitude,
+              latitude: point.latitude
+            }
+          });
+          
+          // Add the pin to the graphics layer
+          graphicsLayer.add(pinGraphic);
+          
+          // Store the pin data
+          pins.push(pinGraphic);
+          
+          // Set this as the active pin
+          activePin = pins.length - 1;
+          
+          // Update the UI
+          pinInfo.value = "";
+          saveButton.disabled = false;
+          pinButton.textContent = "Add Pin";
+          pinButton.style.backgroundColor = "#4CAF50";
+          pinMode = false;
+          view.cursor = "default";
+          
+          // Update the pins list
+          updatePinsList();
+        }
+      });
+      
+      // Function to update the pins list in the UI
+      function updatePinsList() {
+        pinsList.innerHTML = "";
+        
+        pins.forEach(function(pin, index) {
+          const pinItem = document.createElement("div");
+          pinItem.className = "pin-item";
+          
+          // Format the coordinates to 6 decimal places
+          const lat = pin.attributes.latitude.toFixed(6);
+          const lon = pin.attributes.longitude.toFixed(6);
+          
+          // Create the pin description
+          let pinText = `Pin ${index + 1}: [${lat}, ${lon}]`;
+          if (pin.attributes.description) {
+            pinText += ` - ${pin.attributes.description}`;
+          }
+          
+          pinItem.textContent = pinText;
+          
+          // Add click event to center the map on this pin
+          pinItem.addEventListener("click", function() {
+            view.goTo({
+              target: {
+                longitude: pin.attributes.longitude,
+                latitude: pin.attributes.latitude
+              },
+              zoom: 15
+            });
+            
+            // Set as active pin
+            activePin = index;
+            pinInfo.value = pin.attributes.description;
+            saveButton.disabled = false;
+          });
+          
+          pinsList.appendChild(pinItem);
+        });
+      }
+      
+      // Export pins as GeoJSON
+      document.getElementById("exportButton").addEventListener("click", function() {
+        if (pins.length === 0) {
+          alert("No pins to export!");
+          return;
+        }
+        
+        // Create GeoJSON structure
+        const geojson = {
+          type: "FeatureCollection",
+          features: pins.map(function(pin) {
+            return {
+              type: "Feature",
+              geometry: {
+                type: "Point",
+                coordinates: [pin.attributes.longitude, pin.attributes.latitude]
+              },
+              properties: {
+                description: pin.attributes.description
+              }
+            };
+          })
+        };
+        
+        // Create a download link
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(geojson));
+        const downloadAnchor = document.createElement("a");
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", "map_pins.geojson");
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+      });
+    });
+  </script>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  
+  <div id="topbar">
+    <button id="pinButton" class="button">Add Pin</button>
+    <div class="input-label">
+      Pin Description:
+      <textarea id="pinInfo" placeholder="Enter information about this pin"></textarea>
+    </div>
+    <button id="saveButton" class="button" disabled>Save Pin Info</button>
+    <button id="exportButton" class="button">Export Pins</button>
+  </div>
+  
+  <div id="infoDiv">
+    <h3>Pins</h3>
+    <div id="pinsList"></div>
+  </div>
+</body>
+</html>
